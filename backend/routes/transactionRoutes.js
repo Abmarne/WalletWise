@@ -1,24 +1,25 @@
 const express = require('express');
 const router = express.Router();
 const Transaction = require('../models/Transactions');
+const { protect } = require('../middleware/auth');
 
 // Add transaction (both income and expense)
-router.post('/', async (req, res) => {
+router.post('/', protect, async (req, res) => {
   try {
     const { type, amount, category, description, paymentMethod, date, mood } = req.body;
-    
+
     console.log('📥 Received transaction data:', { type, amount, category, description, paymentMethod, date, mood });
-    
+
     // Validate required fields
     if (!type || !amount || !category) {
       return res.status(400).json({ message: 'Type, amount, and category are required' });
     }
-    
+
     // Validate type
     if (!['income', 'expense'].includes(type)) {
       return res.status(400).json({ message: 'Type must be either income or expense' });
     }
-    
+
     const transaction = new Transaction({
       userId: req.userId, // Assuming you have user authentication
       type,
@@ -29,12 +30,12 @@ router.post('/', async (req, res) => {
       date: date || new Date(),
       mood: mood || 'neutral'
     });
-    
+
     await transaction.save();
-    
+
     // Update user's balance if needed
     // You might want to update the user's total balance here
-    
+
     res.status(201).json({
       message: 'Transaction added successfully',
       transaction

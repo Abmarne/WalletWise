@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const SavingsGoal = require('../models/SavingsGoal');
-const verifyToken = require('../middleware/auth'); // Make sure you have this
+const { protect } = require('../middleware/auth');
 
 // Create Savings Goal
-router.post('/', verifyToken, async (req, res) => {
+router.post('/', protect, async (req, res) => {
   try {
     const {
       name,
@@ -71,7 +71,7 @@ router.post('/', verifyToken, async (req, res) => {
 
   } catch (error) {
     console.error('Create savings goal error:', error);
-    
+
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
@@ -79,16 +79,16 @@ router.post('/', verifyToken, async (req, res) => {
         message: messages.join(', ')
       });
     }
-    
-    res.status(500).json({ 
-      success: false, 
+
+    res.status(500).json({
+      success: false,
       message: 'Error creating savings goal'
     });
   }
 });
 
 // Get all savings goals
-router.get('/', verifyToken, async (req, res) => {
+router.get('/', protect, async (req, res) => {
   try {
     const savingsGoals = await SavingsGoal.find({ userId: req.userId, isActive: true })
       .sort({ createdAt: -1 });
@@ -100,9 +100,9 @@ router.get('/', verifyToken, async (req, res) => {
 
   } catch (error) {
     console.error('Get savings goals error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error fetching savings goals' 
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching savings goals'
     });
   }
 });
