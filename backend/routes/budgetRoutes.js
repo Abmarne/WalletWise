@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Budget = require('../models/Budget');
-const { verifyToken } = require('./auth'); // Make sure you have this middleware
+const { protect } = require('../middleware/auth');
 
 // ==================== MIDDLEWARE ====================
 const sanitizeInput = (req, res, next) => {
@@ -18,14 +18,14 @@ const sanitizeInput = (req, res, next) => {
 // ==================== BUDGET ROUTES ====================
 
 // Set/Update Budget
-router.post('/', verifyToken, sanitizeInput, async (req, res) => {
+router.post('/', protect, sanitizeInput, async (req, res) => {
   try {
     console.log('\n💰 SET BUDGET REQUEST');
     console.log('User ID:', req.userId);
     console.log('Request body:', req.body);
-    
+
     const { totalBudget, categories, month } = req.body;
-    
+
     // Validation
     if (!totalBudget || totalBudget <= 0) {
       return res.status(400).json({
@@ -33,18 +33,18 @@ router.post('/', verifyToken, sanitizeInput, async (req, res) => {
         message: 'Valid total budget amount is required'
       });
     }
-    
+
     if (!categories || !Array.isArray(categories) || categories.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'At least one category is required'
       });
     }
-    
+
     // Validate categories
     let totalPercentage = 0;
     let totalAmount = 0;
-    
+
     for (const category of categories) {
       if (!category.name || !category.amount || !category.percentage) {
         return res.status(400).json({
@@ -52,25 +52,25 @@ router.post('/', verifyToken, sanitizeInput, async (req, res) => {
           message: 'Each category must have name, amount, and percentage'
         });
       }
-      
+
       if (category.percentage < 0 || category.percentage > 100) {
         return res.status(400).json({
           success: false,
           message: `Percentage for ${category.name} must be between 0 and 100`
         });
       }
-      
+
       if (category.amount < 0) {
         return res.status(400).json({
           success: false,
           message: `Amount for ${category.name} cannot be negative`
         });
       }
-      
+
       totalPercentage += category.percentage;
       totalAmount += category.amount;
     }
-    
+
     // Check if percentages sum to 100
     if (Math.abs(totalPercentage - 100) > 0.01) { // Allow small floating point differences
       return res.status(400).json({
@@ -78,7 +78,7 @@ router.post('/', verifyToken, sanitizeInput, async (req, res) => {
         message: `Total percentage must be 100%. Currently ${totalPercentage.toFixed(2)}%`
       });
     }
-    
+
     // Check if total amount matches sum of categories
     if (Math.abs(totalAmount - totalBudget) > 0.01) {
       return res.status(400).json({
@@ -86,10 +86,10 @@ router.post('/', verifyToken, sanitizeInput, async (req, res) => {
         message: `Sum of category amounts (${totalAmount}) must equal total budget (${totalBudget})`
       });
     }
-    
+
     // Determine month (use current month if not provided)
     const budgetMonth = month || new Date().toISOString().slice(0, 7);
-    
+
     // Validate month format
     const monthRegex = /^\d{4}-\d{2}$/;
     if (!monthRegex.test(budgetMonth)) {
@@ -98,14 +98,14 @@ router.post('/', verifyToken, sanitizeInput, async (req, res) => {
         message: 'Month must be in YYYY-MM format'
       });
     }
-    
+
     // Check if budget for this month already exists
     let budget = await Budget.findOne({
       userId: req.userId,
       month: budgetMonth,
       isActive: true
     });
-    
+
     if (budget) {
       // Update existing budget
       budget.totalBudget = totalBudget;
@@ -121,10 +121,10 @@ router.post('/', verifyToken, sanitizeInput, async (req, res) => {
         isActive: true
       });
     }
-    
+
     await budget.save();
     console.log('✅ Budget saved successfully:', budget._id);
-    
+
     // Send success response
     res.status(200).json({
       success: true,
@@ -144,17 +144,17 @@ router.post('/', verifyToken, sanitizeInput, async (req, res) => {
         updatedAt: budget.updatedAt
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Set budget error:', error);
-    
+
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
         message: 'Budget for this month already exists'
       });
     }
-    
+
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
@@ -162,7 +162,7 @@ router.post('/', verifyToken, sanitizeInput, async (req, res) => {
         message: messages.join(', ')
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Failed to set budget. Please try again.'
@@ -171,18 +171,18 @@ router.post('/', verifyToken, sanitizeInput, async (req, res) => {
 });
 
 // Get Current Budget
-router.get('/current', verifyToken, async (req, res) => {
+router.get('/current', protect, async (req, res) => {
   try {
     console.log('\n📊 GET CURRENT BUDGET REQUEST');
     console.log('User ID:', req.userId);
-    
+
     const currentMonth = new Date().toISOString().slice(0, 7);
     const budget = await Budget.findOne({
       userId: req.userId,
       month: currentMonth,
       isActive: true
     });
-    
+
     if (!budget) {
       return res.status(404).json({
         success: false,
@@ -196,7 +196,7 @@ router.get('/current', verifyToken, async (req, res) => {
         }
       });
     }
-    
+
     res.json({
       success: true,
       hasBudget: true,
@@ -210,7 +210,7 @@ router.get('/current', verifyToken, async (req, res) => {
         updatedAt: budget.updatedAt
       }
     });
-    
+
   } catch (error) {
     console.error('Get current budget error:', error);
     res.status(500).json({
@@ -221,11 +221,11 @@ router.get('/current', verifyToken, async (req, res) => {
 });
 
 // Get Budget by Month
-router.get('/:month', verifyToken, async (req, res) => {
+router.get('/:month', protect, async (req, res) => {
   try {
     const { month } = req.params;
     const userId = req.userId;
-    
+
     // Validate month format
     const monthRegex = /^\d{4}-\d{2}$/;
     if (!monthRegex.test(month)) {
@@ -234,13 +234,13 @@ router.get('/:month', verifyToken, async (req, res) => {
         message: 'Month must be in YYYY-MM format'
       });
     }
-    
+
     const budget = await Budget.findOne({
       userId,
       month,
       isActive: true
     });
-    
+
     if (!budget) {
       return res.status(404).json({
         success: false,
@@ -248,13 +248,13 @@ router.get('/:month', verifyToken, async (req, res) => {
         hasBudget: false
       });
     }
-    
+
     res.json({
       success: true,
       hasBudget: true,
       budget: budget
     });
-    
+
   } catch (error) {
     console.error('Get budget by month error:', error);
     res.status(500).json({
@@ -265,14 +265,14 @@ router.get('/:month', verifyToken, async (req, res) => {
 });
 
 // Get All User Budgets
-router.get('/', verifyToken, async (req, res) => {
+router.get('/', protect, async (req, res) => {
   try {
     const userId = req.userId;
-    const budgets = await Budget.find({ 
+    const budgets = await Budget.find({
       userId,
-      isActive: true 
+      isActive: true
     }).sort({ month: -1 });
-    
+
     res.json({
       success: true,
       count: budgets.length,
@@ -285,7 +285,7 @@ router.get('/', verifyToken, async (req, res) => {
         updatedAt: budget.updatedAt
       }))
     });
-    
+
   } catch (error) {
     console.error('Get all budgets error:', error);
     res.status(500).json({
@@ -296,20 +296,20 @@ router.get('/', verifyToken, async (req, res) => {
 });
 
 // Copy Previous Month's Budget
-router.post('/copy-previous', verifyToken, async (req, res) => {
+router.post('/copy-previous', protect, async (req, res) => {
   try {
     console.log('\n📋 COPY PREVIOUS MONTH BUDGET REQUEST');
     console.log('User ID:', req.userId);
-    
+
     const newBudget = await Budget.copyPreviousMonth(req.userId);
-    
+
     if (!newBudget) {
       return res.status(404).json({
         success: false,
         message: 'No previous month budget found to copy'
       });
     }
-    
+
     res.status(201).json({
       success: true,
       message: 'Previous month budget copied successfully!',
@@ -327,17 +327,17 @@ router.post('/copy-previous', verifyToken, async (req, res) => {
         createdAt: newBudget.createdAt
       }
     });
-    
+
   } catch (error) {
     console.error('Copy previous budget error:', error);
-    
+
     if (error.message === 'Budget for current month already exists') {
       return res.status(400).json({
         success: false,
         message: 'Budget for current month already exists'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Failed to copy previous month budget'
@@ -346,32 +346,32 @@ router.post('/copy-previous', verifyToken, async (req, res) => {
 });
 
 // Delete/Deactivate Budget
-router.delete('/:id', verifyToken, async (req, res) => {
+router.delete('/:id', protect, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.userId;
-    
+
     const budget = await Budget.findOne({
       _id: id,
       userId
     });
-    
+
     if (!budget) {
       return res.status(404).json({
         success: false,
         message: 'Budget not found'
       });
     }
-    
+
     // Soft delete by setting isActive to false
     budget.isActive = false;
     await budget.save();
-    
+
     res.json({
       success: true,
       message: 'Budget deleted successfully'
     });
-    
+
   } catch (error) {
     console.error('Delete budget error:', error);
     res.status(500).json({
@@ -382,25 +382,25 @@ router.delete('/:id', verifyToken, async (req, res) => {
 });
 
 // Update Budget
-router.put('/:id', verifyToken, sanitizeInput, async (req, res) => {
+router.put('/:id', protect, sanitizeInput, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.userId;
     const updates = req.body;
-    
+
     const budget = await Budget.findOne({
       _id: id,
       userId,
       isActive: true
     });
-    
+
     if (!budget) {
       return res.status(404).json({
         success: false,
         message: 'Budget not found'
       });
     }
-    
+
     // Validate if updating
     if (updates.categories) {
       const totalPercentage = updates.categories.reduce((sum, cat) => sum + cat.percentage, 0);
@@ -411,16 +411,16 @@ router.put('/:id', verifyToken, sanitizeInput, async (req, res) => {
         });
       }
     }
-    
+
     // Update fields
     Object.keys(updates).forEach(key => {
       if (key !== '_id' && key !== 'userId' && key !== 'month') {
         budget[key] = updates[key];
       }
     });
-    
+
     await budget.save();
-    
+
     res.json({
       success: true,
       message: 'Budget updated successfully',
@@ -432,7 +432,7 @@ router.put('/:id', verifyToken, sanitizeInput, async (req, res) => {
       },
       budget: budget
     });
-    
+
   } catch (error) {
     console.error('Update budget error:', error);
     res.status(500).json({
@@ -443,17 +443,17 @@ router.put('/:id', verifyToken, sanitizeInput, async (req, res) => {
 });
 
 // Budget Summary/Statistics
-router.get('/stats/summary', verifyToken, async (req, res) => {
+router.get('/stats/summary', protect, async (req, res) => {
   try {
     const userId = req.userId;
     const currentMonth = new Date().toISOString().slice(0, 7);
-    
+
     const budget = await Budget.findOne({
       userId,
       month: currentMonth,
       isActive: true
     });
-    
+
     if (!budget) {
       return res.json({
         success: true,
@@ -468,7 +468,7 @@ router.get('/stats/summary', verifyToken, async (req, res) => {
         }
       });
     }
-    
+
     // Note: You would need to integrate with transactions to get actual spending
     // For now, returning budget summary without actual spending data
     res.json({
@@ -489,7 +489,7 @@ router.get('/stats/summary', verifyToken, async (req, res) => {
         utilization: 0
       }
     });
-    
+
   } catch (error) {
     console.error('Budget summary error:', error);
     res.status(500).json({
